@@ -1,8 +1,10 @@
 #!/usr/bin/python
 
-from openai import OpenAI
+from openai import OpenAI, Model
+
 client = OpenAI()
 
+"""
 completion = client.chat.completions.create(
     model="gpt-4o-mini",
     messages=[
@@ -14,5 +16,10 @@ completion = client.chat.completions.create(
     ]
 )
 
+
+
 print(completion)
 print(completion.choices[0].message)
+"""
+
+

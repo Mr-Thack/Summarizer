@@ -3,4 +3,4 @@
 FNAME=$(date +%m_%d-%H_%M)
 
 mkdir backups/$FNAME
-cp *.csv *.json *.py *.sh *.txt backups/$FNAME
+cp -ra data/* backups/$FNAME
