@@ -14,8 +14,8 @@ MODEL = None
 LOCAL_MODEL_LIGHTNING="llama3.2:1b-instruct-q4_0"
 LOCAL_MODEL_FAST="llama3.1:8b-instruct-q8_0"
 LOCAL_MODEL_SMART="llama3.1:8b-instruct-fp16"
-CLOUD_MODEL_FAST="gpt4o-mini"
-CLOUD_MODEL_SMART="gpt4o"
+CLOUD_MODEL_FAST="gpt-4o-mini"
+CLOUD_MODEL_SMART="gpt-4o"
 
 
 client = None
@@ -34,26 +34,36 @@ def prompt(system_prompt, question):
         return response['message']['content']
     else:
         completion = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=MODEL,
             messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "system", "content": system_prompt},
                 {
                     "role": "user",
-                    "content": "Write a haiku about recursion in programming."
+                    "content": question
                 }
             ]
         )
-        retrun completion.choices[0].message
+        return completion.choices[0].message.content
 
 def write(data, filename):
     with open(filename, 'w') as f:
         json.dump(data, f, indent=4)
 
 PROMPTS = {
-    "SUMMARIZE": "Your job is to summarize, as concisely and accurately as possible, the Enhancement Requests for CTLS. Enhancement Requests are suggestions for improving CTLS (AKA CTLS Learn), a Learning Management System used in Cobb County. No headers or title are needed. Summarize the following requests as concisely and accurately as possible.",
+    "SUMMARIZE": "Your job is to summarize, as concisely and accurately as possible, the Enhancement Requests for CTLS. Enhancement Requests are suggestions for improving CTLS (AKA CTLS Learn), a Learning Management System used in Cobb County. No headers or title are needed. Summarize the following requests as concisely and accurately as possible in a short blurb. You do not need to use complete sentences. Just get the point across.",
     "SORT": "Your job is to sort each request for improving CTLS, a Learning Management System used in Cobb County, by finding commonalities bewteen requests. So, basically, you need to find requests that are repeats or similar. Pick category names which are descriptive of the specific issue or suggestion described. They should be descriptive enough that someone who has not read the requests should be able to roughly understand what the category refers to. If you do not think a request fits into the categories on this list, then you may suggest a new category by simply responding with the name of the new category. Again, JUST GIVE THE NAME OF THE NEW CATEGORY. No explanation or introduction is needed. Be accurate and descriptive. ONLY SUGGEST THE NAME OF 1 CATEGORY THAT BEST FITS THE REQUEST. DO NOT SHARE ANY REASONING, ONLY RESPOND WITH THE NAME OF THE SELECTED CATEGORY. Here is the list so far: ",
     "BLURB": "Your job is to find what actions would provide the most benefit for CTLS, the Learning Management System used in Cobb County. Provided to you are a list of teacher requests. Determine what actions would most quickly improve CTLS."
 }
+
+PROMPTS['SUMMARIZE'] = """You are an assistant processing enhancement requests for the Cobb Teaching and Learning System (CTLS). Your task is to summarize requests for a human administrator. These summaries must be concise, accurate, and without unnecessary details or formatting. Full sentences are not required.
+
+Key Guidelines:
+
+Summarize Concisely: Use minimal words, focusing only on key points of the request. Avoid redundant or explanatory text.
+Handle Vague Requests: If the request is unclear, attempt to summarize based on available information. Indicate to the human administrator that the request was vague.
+Avoid Unnecessary Formatting: Provide raw, plain text without labels or formatting.
+Direct and Efficient: Focus purely on the enhancement idea or issue raised, cutting any excess information."""
+
 
 def prompt_sort(curlist):
     return PROMPTS["SORT"] + ", ".join(curlist)
@@ -107,8 +117,10 @@ def convert(excel_file_path):
 def summarize_file(f):
     fdata = pandas.read_csv("data/" + f + ".csv").to_dict('records')
     summaries = []
-    for data in fdata:
+    dpr("***{}***\n".format(f))
+    for i, data in enumerate(fdata):
         data = json.dumps(data)
+        dpr("{} of {}".format(i + 1, len(fdata)))
         dpr(data)
         res = prompt(PROMPTS["SUMMARIZE"], data)
         dpr(res, "\n")
@@ -121,7 +133,10 @@ def summarize_file(f):
 def summarize(target):
     target_list = [target]
     if target == "ALL":
-        target_list = [f.replace(".csv", "") for f in os.listdir("data")]
+        # First, we take all the files and strip them of their extension
+        # Then, we put them in a set so that if I have students.csv and students.json, I only get students
+        # Then we turn them back into a list
+        target_list = list(set([f.split(".")[0] for f in os.listdir("data")]))
     sums = []
     for t in target_list:
         sums.append(summarize_file(t))
@@ -164,7 +179,7 @@ if __name__ == "__main__":
         import ollama
         MODEL = LOCAL_MODEL_SMART if args.localsmart else LOCAL_MODEL_FAST if args.localfast else LOCAL_MODEL_LIGHTNING if args.locallightning else LOCAL_MODEL_SMART 
     else:
-        import OpenAI, Model
+        from openai import OpenAI, Model
         client = OpenAI()
         MODEL = CLOUD_MODEL_FAST
 
