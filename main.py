@@ -47,7 +47,7 @@ def prompt(system_prompt, question):
         return completion.choices[0].message.content
 
 def write(data, filename):
-    with open(filename, 'w') as f:
+    with open('./data/' + filename, 'w') as f:
         json.dump(data, f, indent=4)
 
 
@@ -97,9 +97,9 @@ def convert(excel_file_path):
     for sheet_name, data in excel_data.items():
         # Define the output CSV file path
         csv_file_path = os.path.join(output_dir, f"{sheet_name}.csv")
-        print(data, "\n") 
+        dpr(data, "\n") 
         # Save each sheet's data to a CSV file
-        print(csv_file_path)
+        dpr(csv_file_path)
         data.to_csv(csv_file_path, index=None)
         dpr(f"Saved sheet '{sheet_name}' to {csv_file_path}")
 
@@ -111,15 +111,30 @@ def summarize_req(r):
     dpr(res, '\n')
     return res
 
+# Iterates through a CSV File
+class CSVReader:
+    def __init__(self, filename: str):
+        self.filename = filename
+    
+    def __iter__(self):
+        self.index = -1
+        self.data = pd.read_csv("data/" + self.filename + ".csv").to_dict('records')
+        dpr("***{}***\n".format(self.filename))
+        return self
+
+    def __next__(self):
+        self.index += 1
+
+        if self.index == len(self.data):
+            raise StopIteration
+        dpr("{} of {}".format(self.index + 1, len(self.data)))
+        return self.data[self.index]
+
 def summarize_file(f):
-    fdata = pd.read_csv("data/" + f + ".csv").to_dict('records')
     summaries = []
-    dpr("***{}***\n".format(f))
-    for i, data in enumerate(fdata):
-        dpr("{} of {}".format(i + 1, len(fdata)))
-        summary = summarize_req(data)
-        summaries.append(summary)
-        write(summaries, "data/" + f + ".json")
+    for data in CSVReader(f):
+        summaries.append(summarize_req(data))
+        write(summaries, f + ".json")
     return summaries
 
 
@@ -131,9 +146,7 @@ def summarize(target):
         # Then, we put them in a set so that if I have students.csv and students.json, I only get students
         # Then we turn them back into a list
         target_list = list(set([f.split(".")[0] for f in os.listdir("data")]))
-    sums = []
-    for t in target_list:
-        sums.append(summarize_file(t))
+    sums = [summarize_file(t) for t in target_list]
     return sums
 
 def sort(target):
@@ -144,8 +157,6 @@ def blurb(target):
 
 
 if __name__ == "__main__":
-    filebase = None
-
     parser = argparse.ArgumentParser(
                             prog="CTLS Enhancement Request Summarizer",
                             description="Uses AI to summarize Enhancement Requests for CTLS",
