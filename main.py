@@ -13,7 +13,7 @@ CLIENT = None
 
 MODEL = None
 
-LOCAL_MODEL_LIGHTNING="llama3.2:1b-instruct-q4_0"
+LOCAL_MODEL_LIGHTNING="llama3.2:1b-instruct-q2_K"
 LOCAL_MODEL_FAST="llama3.1:8b-instruct-q8_0"
 LOCAL_MODEL_SMART="llama3.1:8b-instruct-fp16"
 CLOUD_MODEL_FAST="gpt-4o-mini"
@@ -47,7 +47,7 @@ def prompt(system_prompt, question):
         return completion.choices[0].message.content
 
 def write(data, filename):
-    with open('./data/' + filename, 'w') as f:
+    with open(filename, 'w') as f:
         json.dump(data, f, indent=4)
 
 
@@ -111,46 +111,145 @@ def summarize_req(r):
     dpr(res, '\n')
     return res
 
-# Iterates through a CSV File
-class CSVReader:
+def sort_req(summary, commonalities):
+    dpr(summary)
+    mprompt = prompt_sort(commonalities) # Generates Prompt
+    res = prompt(mprompt, summary)
+    dpr(res, "\n")
+    return res
+
+def get_filename(f, ext):
+    return "data/{}.{}".format(f, ext)
+
+class Reader:
     def __init__(self, filename: str):
         self.filename = filename
-    
+
+    # Get all of the data
+    def __read__(self):
+        self.data = []
+
     def __iter__(self):
         self.index = -1
-        self.data = pd.read_csv("data/" + self.filename + ".csv").to_dict('records')
         dpr("***{}***\n".format(self.filename))
+        self.__read__()
         return self
 
     def __next__(self):
         self.index += 1
-
         if self.index == len(self.data):
             raise StopIteration
         dpr("{} of {}".format(self.index + 1, len(self.data)))
         return self.data[self.index]
 
+
+def read_csv(f):
+    return pd.read_csv(get_filename(f, 'csv')).to_dict('records')
+
+def read_json(f):
+    return [r[0] for r in pd.read_json(get_filename(f, "json")).values]
+
+# Iterates through a CSV File
+class CSVReader(Reader):
+    def __read__(self):
+        self.data = read_csv(self.filename)
+
+class JSONReader(Reader):
+    def __read__(self):
+        # For some reason, it returns obj[0] insetead of obj for each, and I don't know why
+        self.data = read_json(self.filename)
+
+class SortReader(Reader):
+    def __read__(self):
+        self.data = [
+            {
+                'request': d[0],
+                'summary': d[1]
+            }
+            for d in zip(read_csv(self.filename), read_json(self.filename))
+        ]
+
+def get_target_list(ts):
+    # ts = "ALL" or base of filename
+    target_list = [ts]
+    if ts == "ALL":
+        target_list = list(set([f.split(".")[0] for f in os.listdir("data")]))
+    return target_list
+
+# This wraps any function with the get_target_list function
+# get_target_list takes either a list of file root or "ALL" and turns that into a list of filesnames
+def targeter(fn):
+    def wrap(t):
+        fn(get_target_list(t))
+    return wrap
+
 def summarize_file(f):
     summaries = []
     for data in CSVReader(f):
         summaries.append(summarize_req(data))
-        write(summaries, f + ".json")
+        write(summaries, get_filename(f, 'json'))
     return summaries
 
+@targeter
+def summarize(targets):
+    return [summarize_file(t) for t in targets]
+
+def sort_file(f):
+    # This will hold an object like this:
+    # {
+    #   Subject Category Name 1: {
+    #       Categorization Name 1: [req ids],
+    #       Categorization Name 2: [req ids],
+    #   },
+    #   Subject Category Name 2: ...
+    # }
+    commonalities = {}
+    for i, data in enumerate(SortReader(f)):
+        # First, find get the index (The Subject Name)
+        index = data['request']['Category']
+
+        # dict.get() will return [] if that entry is null
+        subject = commonalities.get(index, {})
+        dpr("Subject: {}".format(index))
+        # Then get a category for the request
+        category = sort_req(data['summary'], subject)
+      
+        # if request_category in current request_categories of subject_category
+        if category in subject.keys():
+            # Just append the current req id
+            subject[category].append(i)
+        else:
+            # Make a list only containing the current req id
+            subject[category] = [i]
+
+        # Then put the modified subject category back into the big list
+        commonalities[index] = subject
+        write(commonalities, get_filename(f, 'commonalities.json'))
+    return commonalities
+
+@targeter
+def sort(targets):
+    return [sort_file(t) for t in targets]
+
+def read_sort_file(f):
+    commonalities = []
+    with open(get_filename(f + ".commonalities", 'json'), 'r') as fp:
+        commonalities = json.load(fp)
+    
+    requests = read_csv(f)
+
+    for subject in commonalities.keys():
+        print("\n\n***Enhancement Category: {}***\n".format(subject))
+        
+        for category in commonalities[subject].keys():
+            print("\n**Subject Category: {}**".format(category))
+            for request in commonalities[subject][category]:
+                print(requests[request], "\n")
 
 
-def summarize(target):
-    target_list = [target]
-    if target == "ALL":
-        # First, we take all the files and strip them of their extension
-        # Then, we put them in a set so that if I have students.csv and students.json, I only get students
-        # Then we turn them back into a list
-        target_list = list(set([f.split(".")[0] for f in os.listdir("data")]))
-    sums = [summarize_file(t) for t in target_list]
-    return sums
-
-def sort(target):
-    dpr(target)
+@targeter
+def read_sort(targets):
+    return [read_sort_file(t) for t in targets]
 
 def blurb(target):
     dpr(target)
@@ -164,8 +263,8 @@ if __name__ == "__main__":
     subparsers = parser.add_subparsers(dest='command', required=True)
 
     # Define the targets and actions that require a target (students/teachers)
-    actions = ('convert', 'sort', 'summarize', 'blurb')
-    actions_fns = (convert, sort, summarize, blurb)
+    actions = ('convert', 'sort', 'read_sort', 'summarize', 'blurb')
+    actions_fns = (convert, sort, read_sort, summarize, blurb)
 
     for action in actions:
         subparser = subparsers.add_parser(action, help=f'{action.capitalize()} target')
@@ -177,7 +276,9 @@ if __name__ == "__main__":
     parser.add_argument('--locallightning', action='store_true', help='Optional local processing 4 bit')
     parser.add_argument('--localfast', action='store_true', help='Optional local processing 8 bit')
     parser.add_argument('--localsmart', action='store_true', help='Optional local processing 16 bit')
-
+    parser.add_argument('--cloudsmart', action='store_true', help='Optional GPT4o')
+    parser.add_argument('--cloudfast', action='store_true', help='Optional GPT4o-mini')
+    
     args = parser.parse_args()
 
     if args.locallightning or args.localfast or args.localsmart:
@@ -186,8 +287,8 @@ if __name__ == "__main__":
     else:
         from openai import OpenAI, Model
         CLIENT = OpenAI()
-        MODEL = CLOUD_MODEL_FAST
-
+        MODEL = CLOUD_MODEL_SMART if args.cloudsmart else CLOUD_MODEL_FAST
+    
     DEBUG = args.debug
    
     fn = actions_fns[actions.index(args.command)]
