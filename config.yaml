@@ -45,3 +45,13 @@ PROMPTS:
 
   BLURB: >
     Your job is to find what actions would provide the most benefit for CTLS, the Learning Management System used in Cobb County. Provided to you are a list of teacher requests. Determine what actions would most quickly improve CTLS.
+
+
+
+MODEL_NICKNAMES:
+  cloud_smart: "gpt-4o"
+  cloud_fast: "gpt-4o-mini"
+  local_einstein: "llama3.1:8b-instruct-fp16"
+  local_smart: "llama3.1:8b-instruct-q8_0"
+  local_fast: "llama3.1:8b-instruct-q4_0"
+  local_lightning: "llama3.2:1b-instruct-q2_K"

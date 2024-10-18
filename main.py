@@ -9,20 +9,44 @@ import os
 
 # This section is for flags
 DEBUG = None
-CLIENT = None
+def select_model(name):
+    global MODEL
+    MODEL = name
+    global CLIENT
+    # Ok, this isn't foolproof, but like, it works for now
+    if "gpt" not in name:
+        from ollama import Client
+        CLIENT = Client(host="http://localhost:11434")
+    else:
+        from openai import OpenAI, Model
+        # Do not know why, but "global" fixes it
+        CLIENT = OpenAI()
 
-MODEL = None
+def select_model_from_nickname(nickname):
+    if nickname in MODEL_NICKNAMES:
+        model = MODEL_NICKNAMES[nickname]
+        select_model(model)
+        return True
+    else:
+        print("Nickname {} not found!".format(nickname))
+        print("Crashing since we don't know what AI Model to use.")
+        print("Select one of these model names using `--model MODEL_NAME`:")
+        for alias, model in MODEL_NICKNAMES:
+            print("\t{}: Uses {}".format(alias,model))
+        return False
 
-LOCAL_MODEL_LIGHTNING="llama3.2:1b-instruct-q2_K"
-LOCAL_MODEL_FAST="llama3.1:8b-instruct-q8_0"
-LOCAL_MODEL_SMART="llama3.1:8b-instruct-fp16"
-CLOUD_MODEL_FAST="gpt-4o-mini"
-CLOUD_MODEL_SMART="gpt-4o"
+class DictObject(object):
+    def __init__(self, dict_):
+        self.__dict__.update(dict_)
 
+    @classmethod
+    def from_dict(cls, d):
+        return json.loads(json.dumps(d), object_hook=DictObject)
 
 def prompt(system_prompt, question):
-    if 'ollama' in sys.modules:
-        response = ollama.chat(model=MODEL, messages=[
+    args = {
+        'model': MODEL,
+        'messages': [
             {
                 'role': 'system',
                 'content': system_prompt
@@ -31,20 +55,15 @@ def prompt(system_prompt, question):
                 'role': 'user',
                 'content': question
             }
-            ], options=dict(num_token=1024, num_thread=6))
-        return response['message']['content']
+        ]
+    }
+    response = None
+    if 'ollama' in sys.modules:
+        response = DictObject.from_dict(CLIENT.chat(**args))
     else:
-        completion = CLIENT.chat.completions.create(
-            model=MODEL,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {
-                    "role": "user",
-                    "content": question
-                }
-            ]
-        )
-        return completion.choices[0].message.content
+        completion = CLIENT.chat.completions.create(**args)
+        response = completion.choices[0]
+    return response.message.content
 
 def write(data, filename):
     with open(filename, 'w') as f:
@@ -59,6 +78,7 @@ def load_config():
 CONFIG = load_config()
 
 PROMPTS = CONFIG['PROMPTS']
+MODEL_NICKNAMES = CONFIG['MODEL_NICKNAMES']
 
 def prompt_sort(curlist):
     return PROMPTS["SORT"] + ", ".join(curlist)
@@ -255,7 +275,7 @@ def blurb(target):
     dpr(target)
 
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(
                             prog="CTLS Enhancement Request Summarizer",
                             description="Uses AI to summarize Enhancement Requests for CTLS",
@@ -272,71 +292,21 @@ if __name__ == "__main__":
 
 
     parser.add_argument('--debug', action='store_true', help='Enable debug mode for verbose output')
-  
-    parser.add_argument('--locallightning', action='store_true', help='Optional local processing 4 bit')
-    parser.add_argument('--localfast', action='store_true', help='Optional local processing 8 bit')
-    parser.add_argument('--localsmart', action='store_true', help='Optional local processing 16 bit')
-    parser.add_argument('--cloudsmart', action='store_true', help='Optional GPT4o')
-    parser.add_argument('--cloudfast', action='store_true', help='Optional GPT4o-mini')
-    
+
+    parser.add_argument('--model', choices=MODEL_NICKNAMES.keys(), default='cloud_smart', help='Optionally select model (default: cloud_smart=gpt4o)')
+
+
     args = parser.parse_args()
 
-    if args.locallightning or args.localfast or args.localsmart:
-        import ollama
-        MODEL = LOCAL_MODEL_SMART if args.localsmart else LOCAL_MODEL_FAST if args.localfast else LOCAL_MODEL_LIGHTNING if args.locallightning else LOCAL_MODEL_SMART 
-    else:
-        from openai import OpenAI, Model
-        CLIENT = OpenAI()
-        MODEL = CLOUD_MODEL_SMART if args.cloudsmart else CLOUD_MODEL_FAST
+    select_model_from_nickname(args.model)
     
+    global DEBUG
     DEBUG = args.debug
    
     fn = actions_fns[actions.index(args.command)]
     fn(args.target)
 
     """
-    if "teachers" in sys.argv:
-        filebase = "teachers"
-    elif "students" in sys.argv:
-        filebase = "students"
-    elif "convert" not in sys.argv:
-        print("ERROR: filebase needed! Teachers or Students")
-        exit
-
-    if "convert" not in sys.argv and "summarize" not in sys.argv and "sort" not in sys.argv and "blurb" not in sys.argv:
-        print("ERROR: instruction needed! summarize, sort, or blurb")
-        exit
-
-    if "convert" in sys.argv:
-        fdata = pandas.read_excel("data.xlsx")
-        print(fdata)
-
-    if "summarize" in sys.argv:
-        fdata = pandas.read_csv(filebase + ".csv").to_dict('records')
-        summaries = []
-        for data in fdata:
-            data = json.dumps(data)
-            print(data)
-            res = prompt(PROMPTS["SUMMARIZE"], data)
-            print(res, "\n")
-            summaries.append(res)
-            write(summaries, filebase + ".json")
-        print_list(summaries)
-    
-    if "sort" in sys.argv:
-        summaries = pandas.read_json(filebase + ".json").values
-        commonalities = []
-        for summary in summaries:
-            summary = summary[0]
-            PROMPT = prompt_sort(commonalities) # Generates Prompt
-            print(summary)
-            res = prompt(PROMPT, summary)
-            if res not in commonalities:
-                commonalities.append(res)
-            print(res, "\n")
-            write(commonalities, filebase  + "_commonalities.json")
-        print_list(commonalities)
-
     if "blurb" in sys.argv:
         summaries = [c[0] for c in pandas.read_json(filebase + ".json").values]
         
@@ -353,4 +323,5 @@ if __name__ == "__main__":
        write(res, filebase + "_blurbs.json")
     """
 
-
+if __name__ == "__main__":
+    main()
