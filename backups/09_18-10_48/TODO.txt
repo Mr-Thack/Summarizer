@@ -1,2 +1,0 @@
-1. Make a pruner script to clean out invalid entries
-2. Force a category, maybe? Not sure if this will help
