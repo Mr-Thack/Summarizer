@@ -1,6 +1,0 @@
-#!/bin/zsh
-
-FNAME=$(date +%m_%d-%H_%M)
-
-mkdir backups/$FNAME
-cp -ra data/* backups/$FNAME
