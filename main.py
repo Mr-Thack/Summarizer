@@ -83,6 +83,27 @@ def write(data, filename):
     with open(filename, 'w') as f:
         json.dump(data, f, indent=4)
 
+def write_to_excel(data, output_filename):
+    """
+    This function is mostly AI Generated.
+
+    Save a dictionary of dictionaries to an Excel file, with each subdictionary
+    in a separate sheet.
+    
+    Parameters:
+    - data (dict of dict): A dictionary where each key represents the sheet name,
+                           and each value is a dictionary representing data for that sheet.
+    - output_filename (str): The path and name of the output Excel file.
+    """
+    with pd.ExcelWriter(output_filename) as writer:
+        for sheet_name, sheet_data in data.items():
+            # Convert each subdictionary to a DataFrame
+            df = pd.DataFrame(sheet_data)
+            # Write the DataFrame to a specific sheet in the Excel file
+            df.to_excel(writer, sheet_name=sheet_name, index=False)
+            
+    print(f"Data successfully saved to {output_filename}")
+
 
 def load_config():
     with open('./config.yaml', 'r') as f:
@@ -270,6 +291,7 @@ def sort_file(f):
         # Then put the modified subject category back into the big list
         subjects[index] = subject
         write(subjects, get_filename(f, 'commonalities.json'))
+        write_to_excel(subjects, 'commonalities.xlsx')
     return subjects 
 
 @targeter
