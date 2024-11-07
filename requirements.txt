@@ -1,2 +1,4 @@
 ollama
 pandas
+pydantic
+openai
