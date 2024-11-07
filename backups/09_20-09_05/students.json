@@ -1,8 +1,0 @@
-[
-    "Users experience significantly slower loading speeds in CTLS after a recent update, often taking over 1 minute to load or failing to load altogether. This results in unresponsive clicks and timeouts, making the system unusable for submitting assignments that previously took only 30 seconds. The issue is consistent across multiple browsers and machines, suggesting it's a server-side problem rather than a user's computer.",
-    "Automatically sync grades from CTLS Assess to Synergy after taking a test.",
-    "Request to simplify the CTLS interface by replacing the terms \"coursework\" with \"assignments\" and removing extraneous elements, while keeping the current visual effects.",
-    "Allow students to organize classes in the \"My Classes\" tab using folders, enabling them to categorize and access classes more easily.",
-    "Restore labels to icons in the Student Coursework section of CTLS Learn to improve navigation and clarity for users.",
-    "Parents need clear, easily understandable instructions in CTLS."
-]
