@@ -8,6 +8,7 @@ import pandas as pd
 import os
 from pydantic import BaseModel
 from dataclasses import dataclass
+from openpyxl import Workbook
 
 # This section is for flags
 DEBUG = None
@@ -71,7 +72,7 @@ def prompt(system_prompt, question, response_model=None):
         if response_model:
             completion = CLIENT.beta.chat.completions.parse
         else:
-            completion = CLIENT.chat.completions.chat
+            completion = CLIENT.chat.completions.create
         completion = completion(**args)
         response = completion.choices[0]
     if response_model:
@@ -79,8 +80,38 @@ def prompt(system_prompt, question, response_model=None):
     else:
         return response.message.content
 
-def write(data, filename):
-    with open(filename, 'w') as f:
+def save_dicts_to_csv(data, output_filename):
+    """
+    This function is also AI Generated.
+
+    Save a dictionary of dictionaries to a single CSV file, with an added column
+    indicating the original sheet (dictionary) name for each row.
+    
+    Parameters:
+    - data (dict of dict): A dictionary where each key represents a sheet name, and each
+                           value is a dictionary representing data for that sheet.
+    - output_filename (str): The path and name of the output CSV file.
+    """
+    # Create an empty list to hold DataFrames for each sheet
+    all_dataframes = []
+    
+    for sheet_name, sheet_data in data.items():
+        # Convert the current dictionary to a DataFrame
+        df = pd.DataFrame(sheet_data)
+        # Add a column for the sheet name
+        df['Category'] = sheet_name
+        # Append to the list of DataFrames
+        all_dataframes.append(df)
+    
+    # Concatenate all DataFrames into a single DataFrame
+    final_df = pd.concat(all_dataframes, ignore_index=True)
+    
+    # Write the final DataFrame to a CSV file
+    final_df.to_csv("./data/" + output_filename, index=False)
+    print(f"Data successfully saved to {output_filename}")
+
+def write_to_json(data, filename):
+    with open(get_filename(filename, 'json'), 'w') as f:
         json.dump(data, f, indent=4)
 
 def write_to_excel(data, output_filename):
@@ -118,7 +149,6 @@ MODEL_NICKNAMES = CONFIG['MODEL_NICKNAMES']
 def prompt_sort(curlist):
     return PROMPTS["SORT"] + ", ".join(curlist)
 
-def print_list(l):
     print("\n\n\n[\n")
     for i in l:
         print("\t", i, "\n")
@@ -246,12 +276,68 @@ def summarize_file(f):
     summaries = []
     for data in CSVReader(f):
         summaries.append(summarize_req(data))
-        write(summaries, get_filename(f, 'json'))
+        write_to_json(summaries, f)
     return summaries
 
 @targeter
 def summarize(targets):
     return [summarize_file(t) for t in targets]
+
+class RequestGetter:
+    data = dict()
+    def __init__(self, f):
+        self.data = read_csv(f)
+
+    def get(self, id):
+        return self.data[id]
+
+
+def save_sort(data, fileroot):
+    # Step 1: Create a new Excel Workbook to hold our data.
+    workbook = Workbook()
+    workbook.remove(workbook.active)  # Remove default sheet to start with a clean slate.
+    rqg = RequestGetter(fileroot)
+    # Step 2: Loop through each entry in the main dictionary (`data`), which represents a "category."
+    for category, subentries in data.items():
+        # Create a sheet named after each category.
+        sheet = workbook.create_sheet(title=category.replace("/","|"))
+        # Step 3: Set headers for this sheet.
+        sheet.append(["Topic Name", "Description", "Additional Information"])
+        
+        # Step 4: Populate each row with data from the `requests` list within each subentry.
+        for subentry_key, subentry_data in subentries.items():
+            # Each subentry contains a list of request IDs under the 'requests' field.
+            requests_list = subentry_data.get('requests', [])
+            for request_id in requests_list:
+                # Retrieve request details using the get_request function.
+                request = rqg.get(request_id)
+                
+                # Append a row with subentry key name and request details.
+                sheet.append([
+                    subentry_key,
+                    request.get('Description', ''),
+                    request.get('Additional Information', '')
+                ])
+        
+        # Step 5: Now create a secondary sheet for each category with " - Topics" appended.
+        topics_sheet_name = f"{category} - Topics"
+        topics_sheet = workbook.create_sheet(title=topics_sheet_name.replace("/","|"))
+        
+        # Step 6: Set headers for the " - Topics" sheet.
+        topics_sheet.append(["Topic Name", "Description"])
+        
+        # Step 7: Populate the " - Topics" sheet with each topic's name and description.
+        for topic, topic_data in subentries.items():
+            topics_sheet.append([
+                topic,
+                topic_data.get('description', '')
+            ])
+    
+    # Step 8: Save the workbook to an Excel file.
+    filename = get_filename(fileroot, "xlsx")
+    workbook.save(filename)
+    print("Data successfully saved to " + filename)
+
 
 def sort_file(f): 
     #   Subject Category Name 1: {
@@ -274,6 +360,7 @@ def sort_file(f):
         # Then get a category for the request
         topic: Topic = sort_req(data['summary'], subject)
         if topic is None:
+            print("SOMETHING WRONG")
             pass # Something went wrong, I don't care enough to debug 
 
 
@@ -290,8 +377,9 @@ def sort_file(f):
 
         # Then put the modified subject category back into the big list
         subjects[index] = subject
-        write(subjects, get_filename(f, 'commonalities.json'))
-        write_to_excel(subjects, 'commonalities.xlsx')
+        save_sort(subjects, f)
+        # write_to_json(subjects, f + ".commonalities") 
+        # save_dicts_to_csv(subjects, f + ".commonalities.csv")
     return subjects 
 
 @targeter
