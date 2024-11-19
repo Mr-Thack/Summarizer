@@ -9,6 +9,33 @@ import os
 from pydantic import BaseModel
 from dataclasses import dataclass
 from openpyxl import Workbook
+import tiktoken
+
+
+def encoding_getter(encoding_type: str):
+    """
+    Returns the appropriate encoding based on the given encoding type (either an encoding string or a model name).
+    """
+    if "k_base" in encoding_type:
+        return tiktoken.get_encoding(encoding_type)
+    else:
+        return tiktoken.encoding_for_model(encoding_type)
+
+def tokenizer(string: str, encoding_type: str) -> list:
+    """
+    Returns the tokens in a text string using the specified encoding.
+    """
+    encoding = encoding_getter(encoding_type)
+    tokens = encoding.encode(string)
+    return tokens
+
+def token_counter(string: str, encoding_type: str) -> int:
+    """
+    Returns the number of tokens in a text string using the specified encoding.
+    """
+    num_tokens = len(tokenizer(string, encoding_type))
+    return num_tokens
+
 
 # This section is for flags
 DEBUG = None
@@ -69,16 +96,29 @@ def prompt(system_prompt, question, response_model=None):
         response = DictObject.from_dict(CLIENT.chat(**args))
     else:
         completion = None
+
         if response_model:
             completion = CLIENT.beta.chat.completions.parse
         else:
             completion = CLIENT.chat.completions.create
         completion = completion(**args)
         response = completion.choices[0]
+
     if response_model:
-        return response.message.parsed
+        response = response.message.parsed
     else:
-        return response.message.content
+        response = response.message.content
+    
+    if DEBUG:
+        input_length = token_counter(system_prompt, MODEL) + token_counter(question, MODEL)
+        input_cost = (input_length / 1000) * 0.0025
+        output_length = token_counter(str(response), MODEL)
+        output_cost = (output_length / 1000) * 0.01
+        print("Model", MODEL, "will require", input_length, "input tokens and",  output_length," output tokens to process this data.")
+        print("That is", str(input_length/1280) + "%", "of input possible and", str(output_length/1280) + "%", "of output possible.")
+        print("Cost is", "$" + str(input_cost), "for input and", "$" + str(output_cost), "for output or ", "$" + str(input_cost + output_cost), "total.")
+
+    return response
 
 def save_dicts_to_csv(data, output_filename):
     """
@@ -113,6 +153,7 @@ def save_dicts_to_csv(data, output_filename):
 def write_to_json(data, filename):
     with open(get_filename(filename, 'json'), 'w') as f:
         json.dump(data, f, indent=4)
+    print("Data successfully written to ", get_filename(filename, 'json'))
 
 def write_to_excel(data, output_filename):
     """
@@ -297,6 +338,11 @@ def save_sort(data, fileroot):
     workbook = Workbook()
     workbook.remove(workbook.active)  # Remove default sheet to start with a clean slate.
     rqg = RequestGetter(fileroot)
+
+    # While we're doing that, we'll concurrently make the JSON cleaner
+    jsd = dict()
+
+
     # Step 2: Loop through each entry in the main dictionary (`data`), which represents a "category."
     for category, subentries in data.items():
         # Create a sheet named after each category.
@@ -304,21 +350,41 @@ def save_sort(data, fileroot):
         # Step 3: Set headers for this sheet.
         sheet.append(["Topic Name", "Description", "Additional Information"])
         
+        # This will save the data for this category
+        this_category = dict()
+
         # Step 4: Populate each row with data from the `requests` list within each subentry.
         for subentry_key, subentry_data in subentries.items():
             # Each subentry contains a list of request IDs under the 'requests' field.
             requests_list = subentry_data.get('requests', [])
+            
+            # This is the one which changes all the numbers to text for the JSON file
+            new_request_list = []
+
             for request_id in requests_list:
                 # Retrieve request details using the get_request function.
                 request = rqg.get(request_id)
-                
+                new_request_list.append({
+                    'Description': request.get('Description', ''),
+                    'Additional Information': request.get('Additional Information', '')
+                })
+
                 # Append a row with subentry key name and request details.
                 sheet.append([
                     subentry_key,
                     request.get('Description', ''),
                     request.get('Additional Information', '')
                 ])
-        
+
+            # Now save the new_request_list to this_category
+            this_category[subentry_key] = {
+                'Description': subentry_data.get('description', ''),
+                'Requests': new_request_list
+            }
+
+        # Now we can finish the JSON for this category 
+        jsd[category] = this_category
+
         # Step 5: Now create a secondary sheet for each category with " - Topics" appended.
         topics_sheet_name = f"{category} - Topics"
         topics_sheet = workbook.create_sheet(title=topics_sheet_name.replace("/","|"))
@@ -334,9 +400,16 @@ def save_sort(data, fileroot):
             ])
     
     # Step 8: Save the workbook to an Excel file.
-    filename = get_filename(fileroot, "xlsx")
-    workbook.save(filename)
-    print("Data successfully saved to " + filename)
+    excel_filename = get_filename(fileroot, "xlsx")
+    workbook.save(excel_filename)
+    print("Data successfully saved to " + excel_filename)
+ 
+    # Step 9: Save the workbook to a JSON file.
+    write_to_json(jsd, fileroot + ".commonalities")
+    print(jsd)
+
+
+
 
 
 def sort_file(f): 
@@ -378,7 +451,6 @@ def sort_file(f):
         # Then put the modified subject category back into the big list
         subjects[index] = subject
         save_sort(subjects, f)
-        # write_to_json(subjects, f + ".commonalities") 
         # save_dicts_to_csv(subjects, f + ".commonalities.csv")
     return subjects 
 
@@ -386,11 +458,15 @@ def sort_file(f):
 def sort(targets):
     return [sort_file(t) for t in targets]
 
-def read_sort_file(f):
+def get_categories(f):
     commonalities = dict()
     with open(get_filename(f + ".commonalities", 'json'), 'r') as fp:
         commonalities = json.load(fp)
     
+    return commonalities
+
+def read_sort_file(f):
+    commonalities = get_categories(f)    
     requests = read_csv(f)
 
     for subject in commonalities.keys():
@@ -407,8 +483,22 @@ def read_sort_file(f):
 def read_sort(targets):
     return [read_sort_file(t) for t in targets]
 
-def blurb(target):
-    dpr(target)
+def blurb_file(f):
+    # first, we'll just test if all of the data fits into the context length or not
+    data = ""
+    with open("./data/" + f + ".commonalities.json") as fp:
+        data = fp.read()
+
+
+    res = prompt(PROMPTS["BLURB"], data)
+    
+    dpr(res)
+    with open("./data/" + f + ' Analysis.txt', 'w') as fp:
+        fp.write(res)
+
+@targeter
+def blurb(targets):
+    return [blurb_file(t) for t in targets]
 
 
 def main():
@@ -447,6 +537,7 @@ def main():
         summaries = [c[0] for c in pandas.read_json(filebase + ".json").values]
         
         res = prompt(PROMPTS['BLURB'], '\n'.join(summaries))
+    
         print(res, "\n")
         write(res, filebase + "_blurb.txt")
         

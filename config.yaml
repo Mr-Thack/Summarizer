@@ -46,8 +46,15 @@ PROMPTS:
   # Append the categories as a list
 
   BLURB: >
-    Your job is to find what actions would provide the most benefit for CTLS, the Learning Management System used in Cobb County. Provided to you are a list of teacher requests. Determine what actions would most quickly improve CTLS.
+    You are an assistant who analyzes enhancement requests. Your job is to find what actions would provide the most benefit for CTLS, the Learning Management System used in Cobb County.
 
+    Provided to you is a list of requests. Determine what actions would bring the most benefit to the CTLS application. 
+
+    Generate about 10 suggestions and list your proposed benefit and reasoning.
+
+    Take your time and think hard. Prioritize insight and accuracy over conciseness.
+    
+    Here is a JSON file with all of the requests, sorted by category and topic:
 
 
 MODEL_NICKNAMES:
