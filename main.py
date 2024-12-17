@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from dataclasses import dataclass
 from openpyxl import Workbook
 import tiktoken
-
+from openai import OpenAI, Model
 
 def encoding_getter(encoding_type: str):
     """
@@ -43,14 +43,8 @@ def select_model(name):
     global MODEL
     MODEL = name
     global CLIENT
-    # Ok, this isn't foolproof, but like, it works for now
-    if "gpt" not in name:
-        from ollama import Client
-        CLIENT = Client(host="http://localhost:11434")
-    else:
-        from openai import OpenAI, Model
-        # Do not know why, but "global" fixes it
-        CLIENT = OpenAI()
+    # Do not know why, but "global" fixes it
+    CLIENT = OpenAI()
 
 def select_model_from_nickname(nickname):
     if nickname in MODEL_NICKNAMES:
@@ -88,27 +82,25 @@ def prompt(system_prompt, question, response_model=None):
             }
         ]
     }
-    if response_model and 'ollama' not in sys.modules:
+    if response_model:
         # args['temperature'] = 0
         args['response_format'] = response_model 
     response = None
-    if 'ollama' in sys.modules:
-        response = DictObject.from_dict(CLIENT.chat(**args))
-    else:
-        completion = None
+    completion = None
 
-        if response_model:
-            completion = CLIENT.beta.chat.completions.parse
-        else:
-            completion = CLIENT.chat.completions.create
-        completion = completion(**args)
-        response = completion.choices[0]
+    if response_model:
+        completion = CLIENT.beta.chat.completions.parse
+    else:
+        completion = CLIENT.chat.completions.create
+    completion = completion(**args)
+    response = completion.choices[0]
 
     if response_model:
         response = response.message.parsed
     else:
         response = response.message.content
     
+    """
     if DEBUG:
         input_length = token_counter(system_prompt, MODEL) + token_counter(question, MODEL)
         input_cost = (input_length / 1000) * 0.0025
@@ -117,6 +109,7 @@ def prompt(system_prompt, question, response_model=None):
         print("Model", MODEL, "will require", input_length, "input tokens and",  output_length," output tokens to process this data.")
         print("That is", str(input_length/1280) + "%", "of input possible and", str(output_length/1280) + "%", "of output possible.")
         print("Cost is", "$" + str(input_cost), "for input and", "$" + str(output_cost), "for output or ", "$" + str(input_cost + output_cost), "total.")
+    """
 
     return response
 
@@ -532,23 +525,6 @@ def main():
     fn = actions_fns[actions.index(args.command)]
     fn(args.target)
 
-    """
-    if "blurb" in sys.argv:
-        summaries = [c[0] for c in pandas.read_json(filebase + ".json").values]
-        
-        res = prompt(PROMPTS['BLURB'], '\n'.join(summaries))
-    
-        print(res, "\n")
-        write(res, filebase + "_blurb.txt")
-        
-    if "blurb" in sys.argv:
-       commonalities = [c[0] for c in pandas.read_json(filebase + "_commonalities.json").values]
-       blurbs = []
-       print(commonalities, "\n")
-       res = prompt(PROMPTS["BLURB"], commonalities)
-       print(res, "\n")
-       write(res, filebase + "_blurbs.json")
-    """
 
 if __name__ == "__main__":
     main()
